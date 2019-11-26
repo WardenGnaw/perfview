@@ -45,7 +45,7 @@ namespace PerfView
             // Copy over the nodes to the new flattened tree (as best we can)
             if (m_flattenedTree.Count > 0 && m_flattenedTree[0].Data.DisplayName == root.DisplayName)
             {
-                CallTreeViewNode.CopyExpandedStateForNode(newFlattenedTree, 0, m_flattenedTree, 0);
+                CallTreeViewNode.CopyViewStateForNode(newFlattenedTree, 0, m_flattenedTree, 0);
             }
 
             // Destroy old nodes (to save memory because GUI keeps references to them)
@@ -395,16 +395,21 @@ namespace PerfView
 
             ValidateTree();
 
+            // If this node has not been expanded before, generate new nodes.
+            if (m_children == null)
+            {
+                m_children = MakeChildren();
+            }
+
             // We are trying to expand the treeNode, add the children after me. 
-            var children = MakeChildren();
-            m_treeView.m_flattenedTree.InsertRange(MyIndex + 1, children);
+            m_treeView.m_flattenedTree.InsertRange(MyIndex + 1, m_children);
             m_isExpanded = true;
 
             ValidateTree();
             // Auto expand nodes that have only one real child.  (Don't do this for graph nodes as it may not terminate.  
-            if (children.Count == 1 && !Data.IsGraphNode)
+            if (m_children.Count == 1 && !Data.IsGraphNode)
             {
-                var onlyChild = children[0];
+                var onlyChild = m_children[0];
                 if (onlyChild.HasChildren)
                 {
                     onlyChild.ExpandNode(selectExpandedNode);
@@ -439,6 +444,9 @@ namespace PerfView
 
                 lastChild++;
             }
+
+            // Preserve the list of child views to save if node is expanded again.
+            m_children = m_treeView.m_flattenedTree.GetRange(firstChild, lastChild - firstChild);
 
             m_treeView.m_flattenedTree.RemoveRange(firstChild, lastChild - firstChild);
             m_isExpanded = false;
@@ -629,6 +637,7 @@ namespace PerfView
             Data = data;
             m_isExpanded = !HasChildren;
             m_depth = depth;
+            m_children = null;
         }
 
         /// <summary>
@@ -647,6 +656,14 @@ namespace PerfView
                 return m_indexGuess;
             }
         }
+
+        /// <summary>
+        /// The list of the previous view that was collapsed.
+        /// 
+        /// This preserves expanded and color state.
+        /// </summary>
+        List<CallTreeViewNode> m_children;
+
         /// <summary>
         /// An Unexpanded CallTreeViewNode does not have any children even if the Data (CallTreeNode) does
         /// This routine will make the necessary children (it is part of expanding the node).  
@@ -668,16 +685,20 @@ namespace PerfView
 
                 ret.Add(newNode);
             }
+
             return ret;
         }
 
         /// <summary>
         /// It is assumed that the node oldFlattenedTree[oldIndex] and newFlattenedTree[newIndex] coorespond 
         /// to one another (have the same path to root) 
-        /// Copies the expandedness of the node 'oldFlattenedTree[oldIndex]' to the new node at 
+        /// Copies some view states of the node 'oldFlattenedTree[oldIndex]' to the new node at 
         /// newFlattenedTree[newIndex], as well as all the state for child node.  
+        /// The current states are:
+        /// - expandedness
+        /// - backgroundColor
         /// </summary>
-        internal static void CopyExpandedStateForNode(List<CallTreeViewNode> newFlattenedTree, int newIndex,
+        internal static void CopyViewStateForNode(List<CallTreeViewNode> newFlattenedTree, int newIndex,
             ObservableCollectionEx<CallTreeViewNode> oldFlattenedTree, int oldIndex)
         {
             Debug.Assert(newIndex == newFlattenedTree.Count - 1);
@@ -687,6 +708,7 @@ namespace PerfView
                 CallTreeViewNode newNode = newFlattenedTree[newIndex];
                 Debug.Assert(newNode.Data.DisplayName == oldNode.Data.DisplayName);
                 newNode.m_isExpanded = true;
+                newNode.BackgroundColor = oldNode.BackgroundColor;
                 if (newNode.HasChildren)
                 {
                     var children = newNode.MakeChildren();
@@ -702,7 +724,7 @@ namespace PerfView
                             int oldChildIndex = FindChild(oldFlattenedTree, oldNode, oldIndex, newChild.Data.DisplayName);
                             if (oldChildIndex >= 0)
                             {
-                                CopyExpandedStateForNode(newFlattenedTree, newFlattenedTree.Count - 1, oldFlattenedTree, oldChildIndex);
+                                CopyViewStateForNode(newFlattenedTree, newFlattenedTree.Count - 1, oldFlattenedTree, oldChildIndex);
                             }
                         }
                     }
@@ -786,6 +808,12 @@ namespace PerfView
             OnPropertyChanged(new PropertyChangedEventArgs("Count"));
             OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
             OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+
+        public List<T> GetRange(int start, int count)
+        {
+            var asList = Items as List<T>;
+            return asList.GetRange(start, count);
         }
     }
     #endregion
